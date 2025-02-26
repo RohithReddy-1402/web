@@ -1,31 +1,62 @@
-const express = require('express');
-const http = require('http');
-const socketIo = require('socket.io');
+#include <WiFi.h>
+#include <WebSocketsClient.h>
+#include <ArduinoJson.h>
 
-const app = express();
-const server = http.createServer(app);
-const io = socketIo(server);
+const char* ssid = "Your_WiFi_SSID";
+const char* password = "Your_WiFi_Password";
+const char* serverAddress = "your_server_ip"; // Change to your server's IP
+const int serverPort = 3000;
 
-app.use(express.static('public'));
+WebSocketsClient webSocket;
 
-io.on('connection', (socket) => {
-    console.log('A user connected:', socket.id);
+int sensorData[4][2] = {
+    {450, 25}, // Sensor 1: Moisture, Temperature
+    {380, 28}, // Sensor 2
+    {500, 26}, // Sensor 3
+    {420, 27}  // Sensor 4
+};
 
-    socket.on('offer', (data) => {
-        socket.broadcast.emit('offer', data);
-    });
+void sendSensorData() {
+    StaticJsonDocument<200> doc;
+    JsonArray sensors = doc.createNestedArray("sensors");
 
-    socket.on('answer', (data) => {
-        socket.broadcast.emit('answer', data);
-    });
+    for (int i = 0; i < 4; i++) {
+        JsonArray sensor = sensors.createNestedArray();
+        sensor.add(sensorData[i][0]);  // Moisture
+        sensor.add(sensorData[i][1]);  // Temperature
+    }
 
-    socket.on('ice-candidate', (data) => {
-        socket.broadcast.emit('ice-candidate', data);
-    });
+    String payload;
+    serializeJson(doc, payload);
+    webSocket.sendTXT(payload);  // Send JSON to backend
+}
 
-    socket.on('disconnect', () => {
-        console.log('User disconnected:', socket.id);
-    });
-});
+void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+    switch(type) {
+        case WStype_CONNECTED:
+            Serial.println("Connected to server");
+            break;
+        case WStype_TEXT:
+            Serial.printf("Message from server: %s\n", payload);
+            break;
+    }
+}
 
-server.listen(5000, () => console.log('Server running on http://localhost:3000'));
+void setup() {
+    Serial.begin(115200);
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("\nWiFi connected");
+
+    webSocket.begin(serverAddress, serverPort, "/");
+    webSocket.onEvent(webSocketEvent);
+}
+
+void loop() {
+    webSocket.loop();
+    sendSensorData();
+    delay(5000);  // Send data every 5 seconds
+}
